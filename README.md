@@ -33,7 +33,10 @@ The Current Prototypes made through the use of ChatGPT-5.0 are proof of concept.
 We believe truly for Australia to become the “data centre capital of the Asia-Pacific”, to host “digital embassies”, it will require a platform like Data Centre Frontiers that can make the analysis and selection of sites for future data centres a simple task for both government and companies. 
 
 
-
-
+Within this GitHub
+ChatGPT folder contains some saved messages as well as a Word document with the links to the chats.
+Data Centre Frontier Briefs contains the Word documents for different versions of the above brief.
+Images contain any screenshots or images related to the GovHack 2025 event and project
+Tasmania DC Viability Versions contains different versions of a ChatGPT-created web app
 
 
