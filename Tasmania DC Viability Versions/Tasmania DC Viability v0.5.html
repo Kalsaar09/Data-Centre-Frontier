@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tasmania Data Centre Viability — Prototype</title>
+  <!-- Tailwind (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- MapLibre GL JS CSS (for map UI) -->
+  <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+  <!-- Mapbox GL Draw CSS -->
+  <link href="https://unpkg.com/@mapbox/mapbox-gl-draw@1.5.0/dist/mapbox-gl-draw.css" rel="stylesheet" />
+
+  <style>
+    body { height: 100vh; }
+    #map { height: 100%; }
+    .mapboxgl-ctrl-bottom-left .maplibregl-ctrl { margin: 0.5rem; }
+    /* Make button state obvious when active/pressed */
+    button[aria-pressed="true"], button[data-active="true"] {
+      filter: brightness(0.85);
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.6) inset; /* sky-300 */
+    }
+    /* Legend swatches */
+    .sw-line { width: 36px; height: 0; border-top-width: 4px; }
+    .sw-dash { width: 36px; height: 0; border-top-width: 4px; border-top-style: dashed; }
+    .sw-dot { width: 12px; height: 12px; border-radius: 9999px; display: inline-block; }
+    .sw-fill { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+  </style>
+</head>
+<body class="h-screen w-screen overflow-hidden bg-slate-950 text-slate-100">
+  <div class="flex h-full">
+    <!-- Sidebar -->
+    <aside class="w-[380px] min-w-[340px] max-w-[420px] bg-slate-900 border-r border-slate-800 flex flex-col">
+      <div class="p-4 border-b border-slate-800">
+        <h1 class="text-xl font-semibold">Tasmania DC Viability</h1>
+        <p class="text-slate-400 text-sm mt-1">Draw a polygon on the map to score site viability. This prototype uses <span class="italic">stub</span> datasets for demo only.</p>
+      </div>
+
+      <div class="p-4 space-y-3">
+        <!-- Profile selector -->
+        <label class="block text-sm font-medium">Profile</label>
+        <select id="profile" class="w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-2">
+          <option value="edge">Edge (1–5 MW)</option>
+          <option value="cloud" selected>Cloud (10–30 MW)</option>
+          <option value="hyperscale">Hyperscale/AI (50–200 MW)</option>
+        </select>
+
+        <div class="flex gap-2 mt-2">
+          <button id="btn-draw-poly" class="rounded-xl px-3 py-2 bg-sky-600 hover:bg-sky-500 text-white">Draw polygon</button>
+          <button id="btn-clear" class="rounded-xl px-3 py-2 bg-slate-800 border border-slate-700 hover:bg-slate-700">Clear</button>
+        </div>
+      </div>
+
+      <!-- Score card -->
+      <div class="px-4 pb-4">
+        <div class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+          <div class="flex items-end gap-3">
+            <div id="score" class="text-5xl font-bold">—</div>
+            <div class="text-slate-400 mb-1">/100</div>
+          </div>
+          <div id="confidence" class="text-slate-400 text-sm mt-1">Confidence: —</div>
+          <div id="decision" class="mt-2 text-sm font-medium"></div>
+        </div>
+      </div>
+
+      <!-- Drivers table -->
+      <div class="px-4 pb-4 overflow-y-auto">
+        <h2 class="text-sm font-semibold mb-2">Drivers & Constraints</h2>
+        <table class="w-full text-sm border-separate border-spacing-y-2">
+          <thead class="text-slate-400">
+            <tr>
+              <th class="text-left">Criterion</th>
+              <th class="text-right">Value</th>
+              <th class="text-right">Subscore</th>
+            </tr>
+          </thead>
+          <tbody id="drivers"></tbody>
+        </table>
+      </div>
+
+      <div class="mt-auto p-4 text-xs text-slate-500 border-t border-slate-800">
+        Prototype only: uses hand-crafted demo layers (HV lines, substations, water, protected areas, highways, cities). Replace with live PMTiles/WMS for real analysis.
+      </div>
+    </aside>
+
+    <!-- Map -->
+    <main class="flex-1 relative">
+      <div id="map"></div>
+
+      <!-- How-to -->
+      <div class="absolute top-3 right-3 z-10 rounded-2xl bg-slate-900/80 backdrop-blur border border-slate-800 p-3 text-xs max-w-[320px]">
+        <div class="font-semibold mb-1">How to use</div>
+        <ol class="list-decimal list-inside space-y-1 text-slate-300">
+          <li>Click <span class="font-semibold">Draw polygon</span>, then click on the map to create a shape (double-click to finish).</li>
+          <li>Select a <span class="font-semibold">Profile</span> to re-weight criteria.</li>
+          <li>Read the score and factor table. Use <span class="font-semibold">Clear</span> to reset.</li>
+        </ol>
+      </div>
+
+      <!-- Legend / Key -->
+      <div class="absolute bottom-3 right-3 z-10 rounded-2xl bg-slate-900/85 backdrop-blur border border-slate-800 p-3 text-xs w-[320px]" role="region" aria-label="Map legend">
+        <div class="font-semibold mb-2">Key</div>
+        <ul class="space-y-2">
+          <li class="flex items-center justify-between gap-3">
+            <span class="text-slate-200">HV Transmission line</span>
+            <span class="sw-line" style="border-top-color:#f59e0b"></span>
+          </li>
+          <li class="flex items-center justify-between gap-3">
+            <span class="text-slate-200">Substation</span>
+            <span class="sw-dot" style="background:#f97316; box-shadow:0 0 0 1px #000"></span>
+          </li>
+          <li class="flex items-center justify-between gap-3">
+            <span class="text-slate-200">Water storage</span>
+            <span class="sw-dot" style="background:#38bdf8; box-shadow:0 0 0 1px #000"></span>
+          </li>
+          <li class="flex items-center justify-between gap-3">
+            <span class="text-slate-200">Protected area</span>
+            <span class="sw-fill" style="background:#22c55e; opacity:0.4; outline:1px solid #16a34a"></span>
+          </li>
+          <li class="flex items-center justify-between gap-3">
+            <span class="text-slate-200">Highway</span>
+            <span class="sw-dash" style="border-top-color:#60a5fa"></span>
+          </li>
+          <li class="flex items-center justify-between gap-3">
+            <span class="text-slate-200">City (workforce proxy)</span>
+            <span class="sw-dot" style="background:#eab308"></span>
+          </li>
+          <li class="flex items-center justify-between gap-3">
+            <span class="text-slate-200">Your polygon (fill)</span>
+            <span class="sw-fill" style="background:#22d3ee"></span>
+          </li>
+          <li class="flex items-center justify-between gap-3">
+            <span class="text-slate-200">Your polygon (outline)</span>
+            <span class="sw-line" style="border-top-color:#06b6d4"></span>
+          </li>
+          <li class="flex items-center justify-between gap-3">
+            <span class="text-slate-200">Outside Tasmania (dimmed)</span>
+            <span class="sw-fill" style="background:#0f172a"></span>
+          </li>
+        </ul>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // --- Boot: handle CDN blocks/adblock & init after libs are ready ---
+    const tasCenter = [146.9, -42.0];
+    const tasBounds = [[144.5, -43.8], [149.0, -39.9]]; // SW, NE
+
+    function loadScript(url){
+      return new Promise((resolve, reject)=>{
+        const s = document.createElement('script');
+        s.src = url; s.async = true; s.onload = resolve; s.onerror = () => reject(new Error('Failed to load '+url));
+        document.head.appendChild(s);
+      });
+    }
+    async function ensureLib(globalName, urls){
+      if (window[globalName]) return;
+      for (const u of urls){
+        try { await loadScript(u); if (window[globalName]) return; } catch (e) { /* try next */ }
+      }
+      throw new Error('Missing global '+globalName+' after trying: '+urls.join(', '));
+    }
+    function pickTileUrl(cb){
+      const primary = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+      const fallback = 'https://tile.openstreetmap.fr/hot/{z}/{x}/{y}.png';
+      const testUrl = primary.replace('{z}','6').replace('{x}','57').replace('{y}','37');
+      const img = new Image();
+      img.referrerPolicy = 'no-referrer';
+      img.onload = () => cb(primary);
+      img.onerror = () => cb(fallback);
+      img.src = testUrl;
+    }
+
+    let map, Draw;
+
+    async function startApp(tileUrl){
+      // Create map with whichever tile URL worked
+      map = new maplibregl.Map({
+        container: 'map',
+        center: tasCenter,
+        zoom: 6.2,
+        maxBounds: tasBounds, // prevent panning far outside Tasmania
+        style: {
+          version: 8,
+          sources: {
+            osm: { type: 'raster', tiles: [tileUrl], tileSize: 256, attribution: '© OpenStreetMap contributors' }
+          },
+          layers: [ { id: 'osm-tiles', type: 'raster', source: 'osm' } ]
+        }
+      });
+
+      map.addControl(new maplibregl.NavigationControl(), 'top-left');
+
+      // Ensure Mapbox GL Draw works with MapLibre BEFORE constructing the control
+      window.mapboxgl = maplibregl;
+      Draw = new MapboxDraw({ displayControlsDefault:false, controls:{ polygon:true, trash:true }, defaultMode:'simple_select' });
+      map.addControl(Draw, 'top-left');
+
+      // Reflect draw mode in UI + disable double-click zoom while drawing
+      map.on('draw.modechange', (e) => {
+        const active = e.mode === 'draw_polygon';
+        setBtnActive(document.getElementById('btn-draw-poly'), active);
+        if (active) { map.doubleClickZoom.disable(); } else { map.doubleClickZoom.enable(); }
+      });
+
+      // UI buttons & active states
+      const btnDraw = document.getElementById('btn-draw-poly');
+      const btnClear = document.getElementById('btn-clear');
+
+      function setBtnActive(el, active){ if(!el) return; el.setAttribute('aria-pressed', active ? 'true' : 'false'); if (active) { el.classList.add('ring-2','ring-sky-300','ring-offset-0'); } else { el.classList.remove('ring-2','ring-sky-300','ring-offset-0'); } }
+
+      btnDraw.onclick = () => { Draw.changeMode('draw_polygon'); map.doubleClickZoom.disable(); setBtnActive(btnDraw, true); };
+      btnClear.onclick = () => {
+        const ids = Draw.getAll().features.map(f => f.id); ids.forEach(id => Draw.delete(id));
+        if (map.getLayer('drawn-poly-outline')) map.removeLayer('drawn-poly-outline');
+        if (map.getLayer('drawn-poly-glow')) map.removeLayer('drawn-poly-glow');
+        if (map.getLayer('drawn-poly')) map.removeLayer('drawn-poly');
+        if (map.getSource('drawn-poly')) map.removeSource('drawn-poly');
+        setScore(null); document.getElementById('decision').textContent = ''; renderDrivers([]);
+        map.easeTo({ center: tasCenter, zoom: 6.2, duration: 400 }); setBtnActive(btnDraw, false); map.doubleClickZoom.enable();
+      };
+
+      // --- Demo datasets (VERY approximate, for prototype only) ---
+      // HV transmission lines (rough, not authoritative)
+      const hvLines = {
+        type: 'FeatureCollection',
+        features: [
+          // NW to Hobart spine (approx.)
+          { type:'Feature', properties:{name:'HV Spine A', kv:220}, geometry:{ type:'LineString', coordinates:[
+            [145.6,-41.0],[145.9,-41.3],[146.1,-41.5],[146.3,-41.7],[146.6,-42.0],[146.9,-42.3],[147.2,-42.6],[147.33,-42.88]
+          ]}},
+          // East coast corridor (approx.)
+          { type:'Feature', properties:{name:'HV Spine B', kv:220}, geometry:{ type:'LineString', coordinates:[
+            [147.5,-40.9],[147.5,-41.2],[147.6,-41.6],[147.6,-42.0],[147.6,-42.4],[147.6,-42.8]
+          ]}},
+        ]
+      };
+
+      // Substations (mock)
+      const substations = {
+        type: 'FeatureCollection',
+        features: [
+          { type:'Feature', properties:{name:'Risdon Substation', kv:220}, geometry:{ type:'Point', coordinates:[147.4,-42.82]}},
+          { type:'Feature', properties:{name:'Hadspen Substation', kv:220}, geometry:{ type:'Point', coordinates:[147.07,-41.49]}},
+          { type:'Feature', properties:{name:'Burnie Substation', kv:220}, geometry:{ type:'Point', coordinates:[145.9,-41.06]}},
+        ]
+      };
+
+      // Major water storages (mock)
+      const waterStorages = {
+        type: 'FeatureCollection',
+        features: [
+          { type:'Feature', properties:{name:'Lake Gordon'}, geometry:{ type:'Point', coordinates:[146.07,-42.20]}},
+          { type:'Feature', properties:{name:'Lake Meadowbank'}, geometry:{ type:'Point', coordinates:[146.87,-42.45]}},
+        ]
+      };
+
+      // Protected area (approximate polygon around Cradle Mountain–Lake St Clair)
+      const protectedArea = {
+        type:'Feature', properties:{name:'Protected Area (Demo)'}, geometry:{ type:'Polygon', coordinates:[[
+          [145.65,-41.50],[146.30,-41.50],[146.30,-42.25],[145.65,-42.25],[145.65,-41.50]
+        ]]}
+      };
+
+      // Main highway (Midland Hwy approx.)
+      const highway = {
+        type:'Feature', properties:{name:'Midland Hwy'}, geometry:{ type:'LineString', coordinates:[
+          [147.33,-42.88],[147.25,-42.75],[147.18,-42.60],[147.11,-42.45],[147.04,-42.30],[146.97,-42.15],[146.93,-42.02],[146.88,-41.90],[146.84,-41.75],[146.79,-41.63],[146.73,-41.55],[146.68,-41.45],[146.67,-41.40],[146.64,-41.33],[146.63,-41.27],[146.61,-41.22],[146.56,-41.16],[146.52,-41.11],[146.50,-41.07],[146.49,-41.05],[147.14,-41.45]
+        ]}
+      };
+
+      // Cities for workforce proximity
+      const cities = {
+        type:'FeatureCollection',
+        features:[
+          { type:'Feature', properties:{name:'Hobart', pop:240000}, geometry:{ type:'Point', coordinates:[147.3272,-42.8821]}},
+          { type:'Feature', properties:{name:'Launceston', pop:110000}, geometry:{ type:'Point', coordinates:[147.1394,-41.4545]}}
+        ]
+      };
+
+      // Render demo layers on map for context
+      map.on('load', () => {
+        // Add dim mask outside Tasmania (a hole over TAS bounds)
+        const worldRing = [[-180,-85],[180,-85],[180,85],[-180,85],[-180,-85]];
+        const tasRing = [
+          [tasBounds[0][0], tasBounds[0][1]],[tasBounds[1][0], tasBounds[0][1]],[tasBounds[1][0], tasBounds[1][1]],[tasBounds[0][0], tasBounds[1][1]],[tasBounds[0][0], tasBounds[0][1]]
+        ];
+        const mask = { type:'Feature', geometry:{ type:'Polygon', coordinates:[worldRing, tasRing] }, properties:{} };
+        map.addSource('tas-mask', { type:'geojson', data: mask });
+        map.addLayer({ id:'tas-mask', type:'fill', source:'tas-mask', paint:{ 'fill-color':'#0f172a', 'fill-opacity':0.6 } }); // dim outside TAS
+
+        // HV lines
+        map.addSource('hv', { type:'geojson', data: hvLines });
+        map.addLayer({ id:'hv', type:'line', source:'hv', paint:{ 'line-color':'#f59e0b', 'line-width':3, 'line-opacity':0.85 } });
+
+        // Substations
+        map.addSource('subs', { type:'geojson', data: substations });
+        map.addLayer({ id:'subs', type:'circle', source:'subs', paint:{ 'circle-radius':6, 'circle-color':'#f97316', 'circle-stroke-color':'#000', 'circle-stroke-width':1 } });
+
+        // Water
+        map.addSource('water', { type:'geojson', data: waterStorages });
+        map.addLayer({ id:'water', type:'circle', source:'water', paint:{ 'circle-radius':5, 'circle-color':'#38bdf8', 'circle-stroke-color':'#000', 'circle-stroke-width':1 } });
+
+        // Protected area
+        map.addSource('pa', { type:'geojson', data: protectedArea });
+        map.addLayer({ id:'pa', type:'fill', source:'pa', paint:{ 'fill-color':'#22c55e', 'fill-opacity':0.15 } });
+        map.addLayer({ id:'pa-outline', type:'line', source:'pa', paint:{ 'line-color':'#16a34a', 'line-width':2, 'line-opacity':0.7 } });
+
+        // Highway
+        map.addSource('hwy', { type:'geojson', data: highway });
+        map.addLayer({ id:'hwy', type:'line', source:'hwy', paint:{ 'line-color':'#60a5fa', 'line-width':3, 'line-dasharray':[2,2] } });
+
+        // Cities
+        map.addSource('cities', { type:'geojson', data: cities });
+        map.addLayer({ id:'cities', type:'circle', source:'cities', paint:{ 'circle-radius':4, 'circle-color':'#eab308' } });
+
+        // Labels
+        map.addLayer({ id:'subs-label', type:'symbol', source:'subs', layout:{ 'text-field':['get','name'], 'text-size':12, 'text-offset':[0,1.2] }, paint:{ 'text-color':'#f8fafc' } });
+        map.addLayer({ id:'cities-label', type:'symbol', source:'cities', layout:{ 'text-field':['get','name'], 'text-size':12, 'text-offset':[0,1.2] }, paint:{ 'text-color':'#f8fafc' } });
+
+        // Listen for draw events
+        map.on('draw.create', e => { const f = e.features[0]; evaluatePolygon(f, hvLines, substations, waterStorages, highway, cities); });
+        map.on('draw.update', e => { const f = e.features[0]; evaluatePolygon(f, hvLines, substations, waterStorages, highway, cities); });
+      });
+
+      map.on('error', (e) => { console.warn('Map error', e && e.error ? e.error : e); });
+
+      // --- Scoring helpers & evaluation (depends on datasets declared above) ---
+      function clamp01(x){ return Math.max(0, Math.min(1, x)); }
+      function ramp01(x, minGood, maxBad){
+        // 1 at <= minGood, 0 at >= maxBad, linear in between
+        if (x <= minGood) return 1;
+        if (x >= maxBad) return 0;
+        return 1 - (x - minGood) / (maxBad - minGood);
+      }
+      function profileWeights(profile){
+        if(profile==='edge'){ return { grid:0.35, telecom:0.20, water:0.05, hazards:0.20, access:0.15, workforce:0.05 }; }
+        if(profile==='hyperscale'){ return { grid:0.45, telecom:0.10, water:0.15, hazards:0.20, access:0.05, workforce:0.05 }; }
+        // cloud default
+        return { grid:0.40, telecom:0.15, water:0.10, hazards:0.20, access:0.10, workforce:0.05 };
+      }
+      function minLineDistance(point, fc){
+        let min = Infinity;
+        for(const f of fc.features){
+          const d = turf.pointToLineDistance(point, f, {units:'kilometers'});
+          if(d < min) min = d;
+        }
+        return min;
+      }
+      function minPointDistance(point, fc){
+        let min = Infinity;
+        for(const f of fc.features){
+          const d = turf.distance(point, f, {units:'kilometers'});
+          if(d < min) min = d;
+        }
+        return min;
+      }
+      function setScore(val){
+        const el = document.getElementById('score');
+        const confEl = document.getElementById('confidence');
+        if(val == null){
+          el.textContent = '—';
+          confEl.textContent = 'Confidence: —';
+          return;
+        }
+        el.textContent = Math.round(val);
+        // simple animated flash
+        el.classList.add('animate-pulse');
+        setTimeout(()=> el.classList.remove('animate-pulse'), 400);
+      }
+      function setDecision(score, inProtected){
+        const confEl = document.getElementById('confidence');
+        const decisionEl = document.getElementById('decision');
+        const profile = document.getElementById('profile').value;
+
+        // rudimentary confidence: just bound by protected area + score spread
+        const conf = inProtected ? 0.4 : (score > 80 ? 0.8 : score > 60 ? 0.7 : score > 40 ? 0.6 : 0.55);
+        confEl.textContent = `Confidence: ${(conf*100).toFixed(0)}%`;
+
+        if(inProtected){
+          decisionEl.textContent = 'Hard constraint: intersects protected area. Choose an alternate site.';
+          decisionEl.className = 'mt-2 text-sm font-medium text-rose-400';
+          return;
+        }
+
+        if(score >= 75){
+          decisionEl.textContent = `Likely viable for ${profile} profile — strong grid & access.`;
+          decisionEl.className = 'mt-2 text-sm font-medium text-emerald-400';
+        } else if(score >= 55){
+          decisionEl.textContent = `Possibly viable for ${profile} — investigate grid capacity, planning, and cooling.`;
+          decisionEl.className = 'mt-2 text-sm font-medium text-amber-300';
+        } else {
+          decisionEl.textContent = `Marginal for ${profile} — distance to grid/water or constraints reduce viability.`;
+          decisionEl.className = 'mt-2 text-sm font-medium text-rose-400';
+        }
+      }
+      function renderDrivers(rows){
+        const tbody = document.getElementById('drivers');
+        tbody.innerHTML = '';
+        for(const r of rows){
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="text-slate-200">${r.name}</td>
+            <td class="text-right text-slate-300">${r.value}</td>
+            <td class="text-right font-mono">${r.sub}</td>
+          `;
+          tbody.appendChild(tr);
+        }
+      }
+      function evaluatePolygon(poly, hvLines, substations, waterStorages, highway, cities){
+        if(!poly || poly.geometry.type !== 'Polygon'){ return; }
+        const profile = document.getElementById('profile').value;
+
+        // centroid for distance proxies
+        const centroid = turf.centroid(poly);
+
+        // Distances (km) to datasets
+        const dHv = minLineDistance(centroid, hvLines);
+        const dSub = minPointDistance(centroid, substations);
+        const dWater = minPointDistance(centroid, waterStorages);
+        const dHwy = turf.pointToLineDistance(centroid, highway, {units:'kilometers'});
+        const dCity = minPointDistance(centroid, cities);
+
+        // Intersections
+        const inProtected = turf.booleanIntersects(poly, { type:'FeatureCollection', features:[protectedArea] });
+
+        // Subscores (0..1)
+        const gridS = 0.6*ramp01(dHv, 2, 20) + 0.4*ramp01(dSub, 10, 60);
+        const telecomS = ramp01(dCity, 5, 120); // proxy for backhaul/IX presence
+        const waterS = ramp01(dWater, 10, 80);
+        const hazardsS = inProtected ? 0 : 1; // hard fail if intersects protected area
+        const accessS = ramp01(dHwy, 3, 40);
+        const workforceS = ramp01(dCity, 10, 150);
+
+        const weights = profileWeights(profile);
+        const composite = 100 * (
+          weights.grid*gridS +
+          weights.telecom*telecomS +
+          weights.water*waterS +
+          weights.hazards*hazardsS +
+          weights.access*accessS +
+          weights.workforce*workforceS
+        );
+
+        // Confidence (demo heuristic: penalise if far from datasets or huge polygon)
+        const polyAreaKm2 = turf.area(poly)/1e6;
+        const conf = clamp01(1 - 0.003*Math.log10(1+polyAreaKm2) - 0.002*(dHv + dSub)/100);
+
+        setScore(Math.round(composite));
+        setDecision(composite, inProtected);
+
+        const drivers = [
+          { name:'Grid — dist. to HV line', value: dHv.toFixed(1)+' km', sub: gridS.toFixed(2) },
+          { name:'Grid — dist. to substation', value: dSub.toFixed(1)+' km', sub: (0.4*ramp01(dSub,10,60)).toFixed(2) },
+          { name:'Telecom — city/backhaul proxy', value: dCity.toFixed(1)+' km', sub: telecomS.toFixed(2) },
+          { name:'Water — dist. to major storage', value: dWater.toFixed(1)+' km', sub: waterS.toFixed(2) },
+          { name:'Hazards — protected area overlap', value: inProtected? 'INTERSECTS' : 'None', sub: hazardsS.toFixed(2) },
+          { name:'Access — dist. to highway', value: dHwy.toFixed(1)+' km', sub: accessS.toFixed(2) },
+          { name:'Workforce — nearest major city', value: dCity.toFixed(1)+' km', sub: workforceS.toFixed(2) },
+          { name:'Polygon area', value: polyAreaKm2.toFixed(2)+' km²', sub: '' },
+        ];
+        renderDrivers(drivers);
+
+        // Outline the drawn polygon with high-visibility styling
+        const id = 'drawn-poly';
+        if(map.getSource(id)) { map.removeLayer(id); map.removeLayer(id+'-glow'); map.removeLayer(id+'-outline'); map.removeSource(id); }
+        map.addSource(id, { type:'geojson', data: poly });
+        // Glow underlay
+        map.addLayer({ id:id+'-glow', type:'line', source:id, paint:{ 'line-color':'#67e8f9', 'line-width':8, 'line-opacity':0.25 } });
+        // Visible fill
+        map.addLayer({ id, type:'fill', source:id, paint:{ 'fill-color':'#22d3ee', 'fill-opacity':0.40 } });
+        // Sharp outline
+        map.addLayer({ id:id+'-outline', type:'line', source:id, paint:{ 'line-color':'#06b6d4', 'line-width':4 } });
+
+        // Zoom to polygon
+        const bbox = turf.bbox(poly);
+        map.fitBounds(bbox, { padding: 40, duration: 500 });
+
+        // Reset draw mode to selection to avoid accidental edits
+        Draw.changeMode('simple_select');
+      }
+    }
+
+    async function bootstrap(){
+      try{
+        await ensureLib('maplibregl', [
+          'https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js',
+          'https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/3.6.2/maplibre-gl.min.js'
+        ]);
+        await ensureLib('MapboxDraw', [
+          'https://unpkg.com/@mapbox/mapbox-gl-draw@1.5.0/dist/mapbox-gl-draw.min.js',
+          'https://cdnjs.cloudflare.com/ajax/libs/mapbox-gl-draw/1.5.0/mapbox-gl-draw.min.js'
+        ]);
+        await ensureLib('turf', [
+          'https://unpkg.com/@turf/turf@6.5.0/turf.min.js',
+          'https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js'
+        ]);
+        pickTileUrl((url)=> startApp(url));
+      } catch(err){
+        console.error(err);
+        const box = document.createElement('div');
+        box.className = 'absolute top-3 left-1/2 -translate-x-1/2 z-20 bg-rose-900/80 text-rose-50 border border-rose-700 rounded-xl px-4 py-2 text-sm';
+        box.textContent = 'Failed to load mapping libraries (possibly blocked by an extension). Try disabling blockers for unpkg.com/cdnjs.cloudflare.com.';
+        document.body.appendChild(box);
+      }
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootstrap); else bootstrap();
+  </script>
+</body>
+</html>
