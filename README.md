@@ -4,6 +4,8 @@ Team Lead Kessler
 Team Members 
 Kessler and Xingchen
 
+To try a proof of concept version, Head to the Tasmania DC Vaibilty Folder and download either data centre frontiers, which uses live data, or Tasmania DC Vaibilty, which uses stub data. From there, just open any version with your web browser.
+
 Data Centre Frontier is a planning platform that turns complex site due diligence into clear, defensible decisions. Users draw a prospective data centre footprint and receive an immediate viability score with full breakdowns across electrical infrastructure, terrestrial and submarine telecoms, environmental hazards, climate, population and land-use zoning, and geological/topographic constraints. Using AI models and auditable datasets, the software also forecasts power and water demand, operating costs, and resilience trade-offs, enabling apples-to-apples comparisons between sites and designs. Every score is explainable: users can inspect inputs, weights and assumptions, export reports, and share evidence with stakeholders. With Data Centre Frontier, the Australian government and organisations can choose locations that are faster to permit, cheaper to run, and better for the grid and the environment.
 
 1) We layer trusted public maps over your sketch.
@@ -26,9 +28,6 @@ By telling you where the data for the platform is coming from and having that in
 6) Keeping Australian Data Sovereignty 
 By using Data Centre Frontier, Australia will be able to keep its data domestic out of the hands of foreign countries that may wish us harm while hosting allied and trusted countries' “digital embassies” to further increase our relationship and trust in one another.
 
-Bottom line:
-Open data provides the evidence (where power, fibre, hazards, climate and people actually are). Data Centre Frontier converts that evidence into a clear, explainable decision for your specific site—so you know why a location looks strong, what could trip it up, and where to dig deeper before committing.
-
 The Current Prototypes made through the use of ChatGPT-5.0 are proof of concept. One, Tasmania DC Viability uses stub datasets instead of live updating data, but considers more datasets than the second prototype. The second prototype Data Centre Frontier – TAS (Open Data) further proves this concept by using some live data from, GA National Electricity Infrastructure filtered to show transmission lines and substations, DCCEEW CAPAD 2024 (terrestrial) for the protected area, and uses Bom Australia Water Storages to find the reservoir. Both of these Prototypes serves as a proof that our vision is worth investing and looking further into so the full feature rich version of the platform with integration of live data as well as the ability for organizations to import their own data, an AI dedicated to the analysis and consolidation of data to provide greater and more accurate feedback for the end-user can be created and used..
 We believe truly for Australia to become the “data centre capital of the Asia-Pacific”, to host “digital embassies”, it will require a platform like Data Centre Frontiers that can make the analysis and selection of sites for future data centres a simple task for both government and companies. 
 
@@ -37,6 +36,7 @@ Within this GitHub;
 ChatGPT folder contains some saved messages as well as a Word document with the links to the chats.
 Data Centre Frontier Briefs contains the Word documents for different versions of the above brief.
 Images contain any screenshots or images related to the GovHack 2025 event and project
+Recordings have the raw video and audio files. 
 Tasmania DC Viability Versions contains different versions of a ChatGPT-created web app proof of concepts.
 
 
